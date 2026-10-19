@@ -4,3 +4,8 @@ node_modules/
 dist/
 .sign
 package-lock.json
+
+.npm-cache/
+
+!mods/package-lock.json
+!service/package-lock.json

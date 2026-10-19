@@ -1,0 +1,31 @@
+name: Playback reliability
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: mods
+      - run: npm ci
+        working-directory: service
+      - run: node --test tests/*.test.cjs
+      - run: npm run build
+        working-directory: mods
+      - run: npx --no-install rollup -c
+        working-directory: service
+      - name: Verify Node 4.4.3 service compatibility
+        run: |
+          mkdir -p "$RUNNER_TEMP/node4"
+          cd "$RUNNER_TEMP/node4"
+          curl -fsSLO https://nodejs.org/dist/v4.4.3/node-v4.4.3-linux-x64.tar.xz
+          curl -fsSLO https://nodejs.org/dist/v4.4.3/SHASUMS256.txt
+          sha256sum --check --ignore-missing SHASUMS256.txt
+          tar -xf node-v4.4.3-linux-x64.tar.xz
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/node4/node-v4.4.3-linux-x64/bin/node" tests/legacy-service.cjs
