@@ -1,7 +1,7 @@
 const dial = require("@patrickkfkan/peer-dial");
 const express = require('express');
 const cors = require('cors');
-const uuid = require('uuid');
+const deviceId = require('./deviceId.cjs');
 const app = express();
 
 const corsOptions = {
@@ -50,7 +50,7 @@ const dialServer = new dial.Server({
     manufacturer: 'Reis Can',
     modelName: 'TizenBrew',
     friendlyName: `TizenTube (${tizen.systeminfo.getCapability('http://tizen.org/system/model_name')})`,
-    uuid: uuid.v5(tizen.systeminfo.getCapability('http://tizen.org/system/tizenid'), '4bcbc514-bdd6-4163-8215-316526fd1d9b'),
+    uuid: deviceId(tizen.systeminfo.getCapability('http://tizen.org/system/tizenid')),
     delegate: {
         getApp(appName) {
             return apps[appName];

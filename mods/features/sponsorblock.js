@@ -61,6 +61,7 @@ class SponsorBlockHandler {
   attachVideoTimeout = null;
   nextSkipTimeout = null;
   sliderInterval = null;
+  overlayTimeout = null;
 
   observer = null;
   scheduleSkipHandler = null;
@@ -92,7 +93,11 @@ class SponsorBlockHandler {
         JSON.stringify(categories)
       )}`
     );
+    if (!this.active || resp.status === 404) return;
+    if (!resp.ok) throw new Error('SponsorBlock HTTP ' + resp.status);
     const results = await resp.json();
+    if (!this.active) return;
+    if (!Array.isArray(results)) throw new Error('Invalid SponsorBlock response');
 
     const result = results.find((v) => v.videoID === this.videoID);
     console.info(this.videoID, 'Got it:', result);
@@ -102,7 +107,9 @@ class SponsorBlockHandler {
       return;
     }
 
-    this.segments = result.segments;
+    this.segments = result.segments.filter(seg => Array.isArray(seg.segment) &&
+      seg.segment.length === 2 && seg.segment.every(n => typeof n === 'number' && isFinite(n)) &&
+      seg.segment[0] >= 0 && seg.segment[1] > seg.segment[0]);
     this.manualSkippableCategories = configRead('sponsorBlockManualSkips');
     this.skippableCategories = this.getSkippableCategories();
 
@@ -110,7 +117,7 @@ class SponsorBlockHandler {
       const slider = document.querySelector('div[idomkey="slider"]');
       const sliderRect = slider?.getBoundingClientRect();
       const isOldUI = !document.querySelector('div[idomkey="Metadata-Section"]');
-      if (isOldUI && sliderRect) {
+      if (isOldUI && sliderRect && this.segmentsoverlay) {
         this.segmentsoverlay.style.setProperty('top', `${sliderRect.top}px`, 'important');
       }
       this.scheduleSkip();
@@ -151,6 +158,7 @@ class SponsorBlockHandler {
   }
 
   attachVideo() {
+    if (!this.active) return;
     clearTimeout(this.attachVideoTimeout);
     this.attachVideoTimeout = null;
 
@@ -167,9 +175,13 @@ class SponsorBlockHandler {
     this.video.addEventListener('pause', this.scheduleSkipHandler);
     this.video.addEventListener('timeupdate', this.scheduleSkipHandler);
     this.video.addEventListener('durationchange', this.durationChangeHandler);
+    this.video.addEventListener('ratechange', this.scheduleSkipHandler);
   }
 
   buildOverlay() {
+    if (!this.active) return;
+    clearTimeout(this.overlayTimeout);
+    this.overlayTimeout = null;
     if (this.segmentsoverlay) {
       console.info('Overlay already built');
       return;
@@ -182,7 +194,10 @@ class SponsorBlockHandler {
 
     const videoDuration = this.video.duration;
     const slider = document.querySelector('div[idomkey="slider"]');
-    if (!slider) return setTimeout(() => this.buildOverlay(), 100);
+    if (!slider) {
+      this.overlayTimeout = setTimeout(() => this.buildOverlay(), 100);
+      return;
+    }
 
     this.segmentsoverlay = document.createElement('div');
 
@@ -231,7 +246,8 @@ class SponsorBlockHandler {
           }
         }
 
-        if (document.querySelector('ytlr-progress-bar').getAttribute('hybridnavfocusable') === 'false') {
+        const progressBar = document.querySelector('ytlr-progress-bar');
+        if (!progressBar || progressBar.getAttribute('hybridnavfocusable') === 'false') {
           this.segmentsoverlay.style.setProperty('display', 'none', 'important');
         } else {
           this.segmentsoverlay.style.setProperty('display', 'block', 'important');
@@ -342,13 +358,15 @@ class SponsorBlockHandler {
         } else this.video.currentTime = end;
         this.scheduleSkip();
       }
-    }, (start - this.video.currentTime) * 1000);
+    }, Math.max(0, (start - this.video.currentTime) * 1000 / (this.video.playbackRate || 1)));
   }
 
   destroy() {
     console.info(this.videoID, 'Destroying');
 
     this.active = false;
+    clearTimeout(this.overlayTimeout);
+    this.overlayTimeout = null;
 
     if (this.nextSkipTimeout) {
       clearTimeout(this.nextSkipTimeout);
@@ -379,6 +397,7 @@ class SponsorBlockHandler {
       this.video.removeEventListener('play', this.scheduleSkipHandler);
       this.video.removeEventListener('pause', this.scheduleSkipHandler);
       this.video.removeEventListener('timeupdate', this.scheduleSkipHandler);
+      this.video.removeEventListener('ratechange', this.scheduleSkipHandler);
       this.video.removeEventListener(
         'durationchange',
         this.durationChangeHandler
@@ -402,7 +421,12 @@ window.addEventListener(
   () => {
     const newURL = new URL(location.hash.substring(1), location.href);
     // A hack, but it works, so...
-    const videoID = newURL.search.replace('?v=', '').split('&')[0];
+    const match = /[?&]v=([^&]+)/.exec(newURL.search);
+    const videoID = match ? decodeURIComponent(match[1]) : '';
+    if (!videoID && window.sponsorblock) {
+      window.sponsorblock.destroy();
+      window.sponsorblock = null;
+    }
     const needsReload =
       videoID &&
       (!window.sponsorblock || window.sponsorblock.videoID != videoID);
@@ -427,7 +451,11 @@ window.addEventListener(
 
       if (configRead('enableSponsorBlock')) {
         window.sponsorblock = new SponsorBlockHandler(videoID);
-        window.sponsorblock.init();
+        const handler = window.sponsorblock;
+        handler.init().catch(err => {
+          handler.destroy();
+          console.warn('SponsorBlock unavailable:', err);
+        });
       } else {
         console.info('SponsorBlock disabled, not loading');
       }

@@ -48,7 +48,7 @@ class PreferredQualityHandler {
     #setupConfigListener() {
         configChangeEmitter.addEventListener(EVENTS.CONFIG_CHANGE, (ev) => {
             if (ev.detail?.key === CONFIG_KEYS.QUALITY) {
-                this.#applyQuality();
+                this.#hasAppliedQuality = this.#applyQuality();
             }
         });
     }
@@ -63,38 +63,41 @@ class PreferredQualityHandler {
             this.#hasAppliedQuality = false;
         }
 
-        const isShorts = Object.values(this.#player.getVideoStats()).find(a => a && a === 'shortspage');
+        const stats = this.#player.getVideoStats?.() || {};
+        const isShorts = Object.keys(stats).some(key => stats[key] === 'shortspage');
         if (state?.isPlaying && !this.#hasAppliedQuality && !isShorts) {
-            this.#applyQuality();
-            this.#hasAppliedQuality = true;
+            this.#hasAppliedQuality = this.#applyQuality();
         }
     };
 
     #applyQuality() {
         const preferredQuality = configRead(CONFIG_KEYS.QUALITY);
-        if (!preferredQuality || preferredQuality === 'auto' || !this.#player) return;
+        if (!this.#player || typeof this.#player.setPlaybackQualityRange !== 'function') return false;
 
         try {
-            const quality = this.#determineQuality(preferredQuality);
+            const quality = !preferredQuality || preferredQuality === 'auto' ? 'default' : this.#determineQuality(preferredQuality);
 
             if (quality) {
-              this.#player.setPlaybackQualityRange(quality, quality)
+              this.#player.setPlaybackQualityRange(quality, quality);
+              return true;
             }
         } catch (e) {
             console.warn('[PreferredQuality] Failed to apply quality:', e);
         }
+        return false;
     }
 
     #determineQuality(preference) {
         const availableQualities = this.#player.getAvailableQualityData();
-        if (!availableQualities?.length) return 'highres';
+        if (!availableQualities?.length) return null;
 
         const getQualityValue = (label) => parseInt(label, 10) || 0;
         const targetValue = getQualityValue(preference);
 
-        const match = availableQualities.find(q => getQualityValue(q.qualityLabel) === targetValue);
-
-        return match ? match.quality : 'highres';
+        const sorted = availableQualities.filter(q => getQualityValue(q.qualityLabel) > 0)
+            .slice().sort((a, b) => getQualityValue(b.qualityLabel) - getQualityValue(a.qualityLabel));
+        const match = sorted.find(q => getQualityValue(q.qualityLabel) <= targetValue);
+        return match ? match.quality : sorted.length ? sorted[sorted.length - 1].quality : null;
     }
 }
 

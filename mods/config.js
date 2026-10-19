@@ -77,15 +77,21 @@ let localConfig;
 
 try {
   localConfig = JSON.parse(window.localStorage[CONFIG_KEY]);
+  if (!localConfig || typeof localConfig !== 'object' || Array.isArray(localConfig)) {
+    throw new Error('Invalid settings object');
+  }
 } catch (err) {
   console.warn('Config read failed:', err);
-  localConfig = defaultConfig;
+  localConfig = JSON.parse(JSON.stringify(defaultConfig));
 }
 
 export function configRead(key) {
-  if (localConfig[key] === undefined) {
+  if (!Object.prototype.hasOwnProperty.call(defaultConfig, key)) return localConfig[key];
+  if (localConfig[key] === undefined ||
+      (defaultConfig[key] !== null && (typeof localConfig[key] !== typeof defaultConfig[key] ||
+       Array.isArray(localConfig[key]) !== Array.isArray(defaultConfig[key])))) {
     console.warn('Populating key', key, 'with default value', defaultConfig[key]);
-    localConfig[key] = defaultConfig[key];
+    localConfig[key] = JSON.parse(JSON.stringify(defaultConfig[key] === undefined ? null : defaultConfig[key]));
   }
 
   return localConfig[key];
@@ -94,7 +100,11 @@ export function configRead(key) {
 export function configWrite(key, value) {
   console.info('Setting key', key, 'to', value);
   localConfig[key] = value;
-  window.localStorage[CONFIG_KEY] = JSON.stringify(localConfig);
+  try {
+    window.localStorage[CONFIG_KEY] = JSON.stringify(localConfig);
+  } catch (err) {
+    console.warn('Settings could not be saved; using them for this session.', err);
+  }
   configChangeEmitter.dispatchEvent(new CustomEvent('configChange', { detail: { key, value } }));
 }
 

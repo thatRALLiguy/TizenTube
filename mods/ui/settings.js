@@ -3,11 +3,19 @@ import { showModal, buttonItem, overlayPanelItemListRenderer, scrollPaneRenderer
 import qrcode from 'qrcode-npm';
 import { t } from 'i18next';
 import resolveCommand from '../resolveCommand.js';
+import { collectPlaybackDiagnostics } from '../features/playbackDiagnostics.js';
 
 const qrcodes = {};
 
 export default function modernUI(update, parameters) {
     const settings = [
+        {
+            name: 'Playback diagnostics',
+            subtitle: 'View playback details for troubleshooting',
+            value: null,
+            options: [],
+            menuId: 'tt-playback-diagnostics'
+        },
         {
             name: t('settings.supportTT.title'),
             icon: 'MONEY_HEART',
@@ -865,6 +873,17 @@ export default function modernUI(update, parameters) {
 }
 
 export function optionShow(parameters, update) {
+    if (parameters.menuId === 'tt-playback-diagnostics') {
+        const rows = collectPlaybackDiagnostics().map(row => overlayMessageRenderer(row[0] + ': ' + row[1]));
+        rows.unshift(buttonItem('Refresh playback details', { icon: 'SEARCH_HISTORY' }, [{
+            customAction: { action: 'OPTIONS_SHOW', parameters: {
+                menuId: 'tt-playback-diagnostics', update: true
+            } }
+        }]));
+        showModal({ title: 'Playback diagnostics', subtitle: 'Snapshot • use Refresh for current values' },
+            scrollPaneRenderer(rows), 'tt-playback-diagnostics', update);
+        return;
+    }
     if (update === 'customUI') {
         const option = parameters.options;
         showModal(
